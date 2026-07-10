@@ -1,0 +1,50 @@
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: valkey
+  namespace: valkey-ecommerce
+spec:
+  serviceName: valkey
+  replicas: 1
+  selector:
+    matchLabels:
+      app: valkey
+  template:
+    metadata:
+      labels:
+        app: valkey
+    spec:
+      containers:
+        - name: valkey
+          image: redis/redis-stack:latest
+          ports:
+            - containerPort: 6379
+              name: valkey-port
+            - containerPort: 8001
+              name: insight-port
+          volumeMounts:
+            - name: valkey-storage
+              mountPath: /data
+  volumeClaimTemplates:
+    - metadata:
+        name: valkey-storage
+      spec:
+        accessModes: [ "ReadWriteOnce" ]
+        resources:
+          requests:
+            storage: 5Gi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: valkey
+  namespace: valkey-ecommerce
+spec:
+  clusterIP: None
+  ports:
+    - port: 6379
+      name: valkey-port
+    - port: 8001
+      name: insight-port
+  selector:
+    app: valkey

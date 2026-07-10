@@ -3,6 +3,67 @@ import query from "jquery";
 import { Link, NavLink } from "react-router-dom";
 const HeaderTwo = ({ category }) => {
   const [scroll, setScroll] = useState(false);
+  const [user, setUser] = useState(null);
+  const [cartCount, setCartCount] = useState(0);
+  const [wishlistCount, setWishlistCount] = useState(0);
+  const [compareCount, setCompareCount] = useState(0);
+
+  const loadUserAndCart = async () => {
+    const token = localStorage.getItem('valkey_session_token');
+    if (token) {
+      try {
+        const { api } = await import('../services/api');
+        const profile = await api.auth.me();
+        setUser(profile);
+      } catch (err) {
+        localStorage.removeItem('valkey_session_token');
+      }
+    } else {
+      setUser(null);
+    }
+
+    try {
+      const { api } = await import('../services/api');
+      const cartData = await api.cart.get();
+      if (cartData && cartData.items) {
+        const count = cartData.items.reduce((sum, item) => sum + item.quantity, 0);
+        setCartCount(count);
+      } else {
+        setCartCount(0);
+      }
+    } catch (err) {
+      console.error('Failed to load cart count:', err);
+    }
+
+    const wishStored = localStorage.getItem('valkey_wishlist');
+    setWishlistCount(wishStored ? JSON.parse(wishStored).length : 0);
+
+    const compStored = localStorage.getItem('valkey_compare');
+    setCompareCount(compStored ? JSON.parse(compStored).length : 0);
+  };
+
+  const handleLogout = async () => {
+    try {
+      const { api } = await import('../services/api');
+      await api.auth.logout();
+    } catch (e) {}
+    setUser(null);
+    localStorage.removeItem('valkey_session_token');
+    window.location.reload();
+  };
+
+  useEffect(() => {
+    loadUserAndCart();
+    window.addEventListener('cartUpdate', loadUserAndCart);
+    window.addEventListener('wishlistUpdate', loadUserAndCart);
+    window.addEventListener('compareUpdate', loadUserAndCart);
+    return () => {
+      window.removeEventListener('cartUpdate', loadUserAndCart);
+      window.removeEventListener('wishlistUpdate', loadUserAndCart);
+      window.removeEventListener('compareUpdate', loadUserAndCart);
+    };
+  }, []);
+
   useEffect(() => {
     window.onscroll = () => {
       if (window.pageYOffset < 150) {
@@ -634,17 +695,35 @@ const HeaderTwo = ({ category }) => {
                     <i className='ph ph-magnifying-glass' />
                   </span>
                 </button>
-                <Link
-                  to='/account'
-                  className='flex-align flex-column gap-8 item-hover-two'
-                >
-                  <span className='text-2xl text-white d-flex position-relative item-hover__text'>
-                    <i className='ph ph-user' />
-                  </span>
-                  <span className='text-md text-white item-hover__text d-none d-lg-flex'>
-                    Profile
-                  </span>
-                </Link>
+                {user ? (
+                  <div className='flex-align flex-column gap-8 item-hover-two'>
+                    <span className='text-2xl text-white d-flex position-relative item-hover__text'>
+                      <i className='ph ph-user-circle' />
+                    </span>
+                    <span className='text-md text-white item-hover__text d-none d-lg-flex fw-medium'>
+                      Hi, {user.firstName}!
+                    </span>
+                    <button
+                      onClick={handleLogout}
+                      className='bg-transparent border-0 text-white p-0 hover-text-decoration-underline text-xs fw-semibold'
+                      style={{ cursor: 'pointer', marginTop: '-4px' }}
+                    >
+                      (Logout)
+                    </button>
+                  </div>
+                ) : (
+                  <Link
+                    to='/account'
+                    className='flex-align flex-column gap-8 item-hover-two'
+                  >
+                    <span className='text-2xl text-white d-flex position-relative item-hover__text'>
+                      <i className='ph ph-user' />
+                    </span>
+                    <span className='text-md text-white item-hover__text d-none d-lg-flex'>
+                      Login / Register
+                    </span>
+                  </Link>
+                )}
                 <Link
                   to='/wishlist'
                   className='flex-align flex-column gap-8 item-hover-two'
@@ -652,7 +731,7 @@ const HeaderTwo = ({ category }) => {
                   <span className='text-2xl text-white d-flex position-relative me-6 mt-6 item-hover__text'>
                     <i className='ph ph-heart' />
                     <span className='w-16 h-16 flex-center rounded-circle bg-main-two-600 text-white text-xs position-absolute top-n6 end-n4'>
-                      2
+                      {wishlistCount}
                     </span>
                   </span>
                   <span className='text-md text-white item-hover__text d-none d-lg-flex'>
@@ -660,13 +739,13 @@ const HeaderTwo = ({ category }) => {
                   </span>
                 </Link>
                 <Link
-                  to='/cart'
+                  to='/compare'
                   className='flex-align flex-column gap-8 item-hover-two'
                 >
                   <span className='text-2xl text-white d-flex position-relative me-6 mt-6 item-hover__text'>
                     <i className='ph-fill ph-shuffle' />
                     <span className='w-16 h-16 flex-center rounded-circle bg-main-two-600 text-white text-xs position-absolute top-n6 end-n4'>
-                      2
+                      {compareCount}
                     </span>
                   </span>
                   <span className='text-md text-white item-hover__text d-none d-lg-flex'>
@@ -680,7 +759,7 @@ const HeaderTwo = ({ category }) => {
                   <span className='text-2xl text-white d-flex position-relative me-6 mt-6 item-hover__text'>
                     <i className='ph ph-shopping-cart-simple' />
                     <span className='w-16 h-16 flex-center rounded-circle bg-main-two-600 text-white text-xs position-absolute top-n6 end-n4'>
-                      2
+                      {cartCount}
                     </span>
                   </span>
                   <span className='text-md text-white item-hover__text d-none d-lg-flex'>
@@ -2184,7 +2263,7 @@ const HeaderTwo = ({ category }) => {
                     <span className='text-2xl text-white d-flex position-relative me-6 mt-6 item-hover__text'>
                       <i className='ph ph-heart' />
                       <span className='w-16 h-16 flex-center rounded-circle bg-main-two-600 text-white text-xs position-absolute top-n6 end-n4'>
-                        2
+                        {wishlistCount}
                       </span>
                     </span>
                     <span className='text-md text-white item-hover__text d-none d-lg-flex'>
@@ -2192,13 +2271,13 @@ const HeaderTwo = ({ category }) => {
                     </span>
                   </Link>
                   <Link
-                    to='/cart'
+                    to='/compare'
                     className='flex-align flex-column gap-8 item-hover-two'
                   >
                     <span className='text-2xl text-white d-flex position-relative me-6 mt-6 item-hover__text'>
                       <i className='ph-fill ph-shuffle' />
                       <span className='w-16 h-16 flex-center rounded-circle bg-main-two-600 text-white text-xs position-absolute top-n6 end-n4'>
-                        2
+                        {compareCount}
                       </span>
                     </span>
                     <span className='text-md text-white item-hover__text d-none d-lg-flex'>
@@ -2212,7 +2291,7 @@ const HeaderTwo = ({ category }) => {
                     <span className='text-2xl text-white d-flex position-relative me-6 mt-6 item-hover__text'>
                       <i className='ph ph-shopping-cart-simple' />
                       <span className='w-16 h-16 flex-center rounded-circle bg-main-two-600 text-white text-xs position-absolute top-n6 end-n4'>
-                        2
+                        {cartCount}
                       </span>
                     </span>
                     <span className='text-md text-white item-hover__text d-none d-lg-flex'>

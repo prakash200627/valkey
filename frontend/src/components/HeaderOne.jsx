@@ -4,6 +4,62 @@ import { Link, NavLink } from "react-router-dom";
 
 const HeaderOne = () => {
   const [scroll, setScroll] = useState(false);
+  const [user, setUser] = useState(null);
+  const [cartCount, setCartCount] = useState(0);
+  const [wishlistCount, setWishlistCount] = useState(0);
+
+
+  const loadUserAndCart = async () => {
+    const token = localStorage.getItem('valkey_session_token');
+    if (token) {
+      try {
+        const { api } = await import('../services/api');
+        const profile = await api.auth.me();
+        setUser(profile);
+      } catch (err) {
+        localStorage.removeItem('valkey_session_token');
+      }
+    } else {
+      setUser(null);
+    }
+
+    try {
+      const { api } = await import('../services/api');
+      const cartData = await api.cart.get();
+      if (cartData && cartData.items) {
+        const count = cartData.items.reduce((sum, item) => sum + item.quantity, 0);
+        setCartCount(count);
+      } else {
+        setCartCount(0);
+      }
+    } catch (err) {
+      console.error('Failed to load cart count:', err);
+    }
+
+    const wishStored = localStorage.getItem('valkey_wishlist');
+    setWishlistCount(wishStored ? JSON.parse(wishStored).length : 0);
+  };
+
+  const handleLogout = async () => {
+    try {
+      const { api } = await import('../services/api');
+      await api.auth.logout();
+    } catch (e) {}
+    setUser(null);
+    localStorage.removeItem('valkey_session_token');
+    window.location.reload();
+  };
+
+  useEffect(() => {
+    loadUserAndCart();
+    window.addEventListener('cartUpdate', loadUserAndCart);
+    window.addEventListener('wishlistUpdate', loadUserAndCart);
+    return () => {
+      window.removeEventListener('cartUpdate', loadUserAndCart);
+      window.removeEventListener('wishlistUpdate', loadUserAndCart);
+    };
+  }, []);
+
   useEffect(() => {
     window.onscroll = () => {
       if (window.pageYOffset < 150) {
@@ -644,18 +700,34 @@ const HeaderOne = () => {
                 </ul>
               </li>
               <li className='border-right-item'>
-                <Link
-                  to='/account'
-                  className='text-white text-sm py-8 flex-align gap-6'
-                >
-                  <span className='icon text-md d-flex'>
-                    {" "}
-                    <i className='ph ph-user-circle' />{" "}
-                  </span>
-                  <span className='hover-text-decoration-underline'>
-                    My Account
-                  </span>
-                </Link>
+                {user ? (
+                  <div className='text-white text-sm py-8 flex-align gap-6'>
+                    <span className='icon text-md d-flex'>
+                      <i className='ph ph-user-circle' />
+                    </span>
+                    <span className='fw-medium'>Hi, {user.firstName}!</span>
+                    <button
+                      onClick={handleLogout}
+                      className='bg-transparent border-0 text-white p-0 hover-text-decoration-underline ms-8 text-xs fw-semibold'
+                      style={{ cursor: 'pointer' }}
+                    >
+                      (Logout)
+                    </button>
+                  </div>
+                ) : (
+                  <Link
+                    to='/account'
+                    className='text-white text-sm py-8 flex-align gap-6'
+                  >
+                    <span className='icon text-md d-flex'>
+                      {" "}
+                      <i className='ph ph-user-circle' />{" "}
+                    </span>
+                    <span className='hover-text-decoration-underline'>
+                      Login / Register
+                    </span>
+                  </Link>
+                )}
               </li>
             </ul>
           </div>
@@ -756,7 +828,7 @@ const HeaderOne = () => {
                   <span className='text-2xl text-gray-700 d-flex position-relative me-6 mt-6 item-hover__text'>
                     <i className='ph ph-heart' />
                     <span className='w-16 h-16 flex-center rounded-circle bg-main-600 text-white text-xs position-absolute top-n6 end-n4'>
-                      2
+                      {wishlistCount}
                     </span>
                   </span>
                   <span className='text-md text-gray-500 item-hover__text d-none d-lg-flex'>
@@ -767,7 +839,7 @@ const HeaderOne = () => {
                   <span className='text-2xl text-gray-700 d-flex position-relative me-6 mt-6 item-hover__text'>
                     <i className='ph ph-shopping-cart-simple' />
                     <span className='w-16 h-16 flex-center rounded-circle bg-main-600 text-white text-xs position-absolute top-n6 end-n4'>
-                      2
+                      {cartCount}
                     </span>
                   </span>
                   <span className='text-md text-gray-500 item-hover__text d-none d-lg-flex'>
@@ -1473,7 +1545,7 @@ const HeaderOne = () => {
                     <span className='text-2xl text-gray-700 d-flex position-relative me-6 mt-6 item-hover__text'>
                       <i className='ph ph-heart' />
                       <span className='w-16 h-16 flex-center rounded-circle bg-main-600 text-white text-xs position-absolute top-n6 end-n4'>
-                        2
+                        {wishlistCount}
                       </span>
                     </span>
                     <span className='text-md text-gray-500 item-hover__text d-none d-lg-flex'>
@@ -1484,7 +1556,7 @@ const HeaderOne = () => {
                     <span className='text-2xl text-gray-700 d-flex position-relative me-6 mt-6 item-hover__text'>
                       <i className='ph ph-shopping-cart-simple' />
                       <span className='w-16 h-16 flex-center rounded-circle bg-main-600 text-white text-xs position-absolute top-n6 end-n4'>
-                        2
+                        {cartCount}
                       </span>
                     </span>
                     <span className='text-md text-gray-500 item-hover__text d-none d-lg-flex'>

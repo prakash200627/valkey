@@ -1,10 +1,26 @@
 import React, { useEffect, useState } from 'react'
-import { Link } from 'react-router-dom';
+import { Link, useLocation } from 'react-router-dom';
 import Slider from 'react-slick';
 import { getCountdown } from '../helper/Countdown';
+import { api } from '../services/api';
 
 const ProductDetailsOne = () => {
     const [timeLeft, setTimeLeft] = useState(getCountdown());
+    const location = useLocation();
+
+    // Parse product ID from query parameter e.g., ?id=product:0192...
+    const searchParams = new URLSearchParams(location.search);
+    const productId = searchParams.get('id');
+
+    const [product, setProduct] = useState(null);
+    const [loading, setLoading] = useState(true);
+    const [error, setError] = useState(null);
+    const [quantity, setQuantity] = useState(1);
+    const [mainImage, setMainImage] = useState('');
+    const [addedToCart, setAddedToCart] = useState(false);
+    const [inWishlist, setInWishlist] = useState(false);
+    const [inCompare, setInCompare] = useState(false);
+
 
     useEffect(() => {
         const interval = setInterval(() => {
@@ -13,29 +29,147 @@ const ProductDetailsOne = () => {
 
         return () => clearInterval(interval);
     }, []);
-    const productImages = [
-        "assets/images/thumbs/product-details-thumb1.png",
-        "assets/images/thumbs/product-details-thumb2.png",
-        "assets/images/thumbs/product-details-thumb3.png",
-        "assets/images/thumbs/product-details-thumb2.png",
-    ];
 
-    // increment & decrement
-    const [quantity, setQuantity] = useState(1);
+    useEffect(() => {
+        if (!productId) {
+            setError('No product ID specified in the URL.');
+            setLoading(false);
+            return;
+        }
+
+        const fetchProduct = async () => {
+            try {
+                setLoading(true);
+                const data = await api.products.get(productId);
+                setProduct(data);
+                if (data.images && data.images.length > 0) {
+                    setMainImage(data.images[0].url);
+                }
+                setError(null);
+
+                const wishStored = localStorage.getItem('valkey_wishlist');
+                const wishIds = wishStored ? JSON.parse(wishStored) : [];
+                setInWishlist(wishIds.includes(data.id));
+
+                const compStored = localStorage.getItem('valkey_compare');
+                const compIds = compStored ? JSON.parse(compStored) : [];
+                setInCompare(compIds.includes(data.id));
+
+                // Track view event in Valkey for Challenge 4 (Trending)
+                await api.products.trackEvent(productId, 'view').catch((err) => {
+                    console.error('Failed to track view event:', err);
+                });
+            } catch (err) {
+                console.error('Error loading product:', err);
+                setError(err.message || 'Failed to retrieve product details.');
+            } finally {
+                setLoading(false);
+            }
+        };
+
+        fetchProduct();
+    }, [productId]);
+
+    // Increment & decrement quantity controls
     const incrementQuantity = () => setQuantity(quantity + 1);
     const decrementQuantity = () => setQuantity(quantity > 1 ? quantity - 1 : quantity);
 
+    const handleAddToCart = async () => {
+        if (!product) return;
+        try {
+            setAddedToCart(true);
+            await api.cart.addItem(product.id, quantity);
+            
+            // Track add-to-cart event in Valkey Sorted Sets (Challenge 4)
+            await api.products.trackEvent(product.id, 'add-to-cart').catch((err) => {
+                console.error('Failed to track add-to-cart event:', err);
+            });
 
-    const [mainImage, setMainImage] = useState(productImages[0]);
+            // Notify header to update cart count
+            window.dispatchEvent(new Event('cartUpdate'));
+
+            setTimeout(() => {
+                setAddedToCart(false);
+            }, 2000);
+        } catch (err) {
+            console.error('Failed to add to cart:', err);
+            setAddedToCart(false);
+        }
+    };
+
+    const handleWishlistToggle = () => {
+        if (!product) return;
+        const stored = localStorage.getItem('valkey_wishlist');
+        let ids = stored ? JSON.parse(stored) : [];
+        if (ids.includes(product.id)) {
+            ids = ids.filter(id => id !== product.id);
+            setInWishlist(false);
+        } else {
+            ids.push(product.id);
+            setInWishlist(true);
+        }
+        localStorage.setItem('valkey_wishlist', JSON.stringify(ids));
+        window.dispatchEvent(new Event('wishlistUpdate'));
+    };
+
+    const handleCompareToggle = () => {
+        if (!product) return;
+        const stored = localStorage.getItem('valkey_compare');
+        let ids = stored ? JSON.parse(stored) : [];
+        if (ids.includes(product.id)) {
+            ids = ids.filter(id => id !== product.id);
+            setInCompare(false);
+        } else {
+            if (ids.length >= 3) {
+                alert("You can compare up to 3 products only. Please remove an existing item first.");
+                return;
+            }
+            ids.push(product.id);
+            setInCompare(true);
+        }
+        localStorage.setItem('valkey_compare', JSON.stringify(ids));
+        window.dispatchEvent(new Event('compareUpdate'));
+    };
 
     const settingsThumbs = {
         dots: false,
-        infinite: true,
+        infinite: product?.images && product.images.length > 4,
         speed: 500,
-        slidesToShow: 4,
+        slidesToShow: Math.min(product?.images?.length || 4, 4),
         slidesToScroll: 1,
         focusOnSelect: true,
     };
+    const formatPrice = (amount) => {
+        if (amount === undefined || amount === null) return 'INR 0.00';
+        return `INR ${(amount / 100).toFixed(2)}`;
+    };
+
+    if (loading) {
+        return (
+            <div className="container py-80 text-center">
+                <div className="spinner-border text-success" role="status" style={{ width: '3rem', height: '3rem' }}>
+                    <span className="visually-hidden">Loading...</span>
+                </div>
+                <p className="mt-24 text-gray-500 fw-medium">Retrieving secure product profile from Valkey JSON...</p>
+            </div>
+        );
+    }
+
+    if (error || !product) {
+        return (
+            <div className="container py-80 text-center">
+                <div className="border border-gray-100 rounded-16 p-48 bg-gray-50 max-w-600 mx-auto box-shadow-sm">
+                    <i className="ph ph-warning-circle text-6xl text-danger d-block mb-16" />
+                    <h5 className="mb-8">Product Profile Unavailable</h5>
+                    <p className="text-gray-500 mb-24">{error || "The requested product does not exist in our catalog."}</p>
+                    <Link to="/shop" className="btn btn-main rounded-pill">
+                        Back to Catalog
+                    </Link>
+                </div>
+            </div>
+        );
+    }
+
     return (
         <section className="product-details py-80">
             <div className="container container-lg">
@@ -44,78 +178,76 @@ const ProductDetailsOne = () => {
                         <div className="row gy-4">
                             <div className="col-xl-6">
                                 <div className="product-details__left">
-                                    <div className="product-details__thumb-slider border border-gray-100 rounded-16">
-                                        <div className="">
-                                            <div className="product-details__thumb flex-center h-100">
-                                                <img src={mainImage} alt="Main Product" />
-                                            </div>
+                                    <div className="product-details__thumb-slider border border-gray-100 rounded-16 bg-gray-50 flex-center" style={{ height: '350px', overflow: 'hidden' }}>
+                                        <div className="flex-center h-100 w-100 p-24">
+                                            <img 
+                                                src={mainImage || 'assets/images/thumbs/product-two-img1.png'} 
+                                                alt={product.name} 
+                                                style={{ maxHeight: '100%', maxWidth: '100%', objectFit: 'contain' }}
+                                            />
                                         </div>
                                     </div>
                                     <div className="mt-24">
                                         <div className="product-details__images-slider">
                                             <Slider {...settingsThumbs}>
-                                                {productImages.map((image, index) => (
-                                                    <div className="center max-w-120 max-h-120 h-100 flex-center border border-gray-100 rounded-16 p-8" key={index} onClick={() => setMainImage(image)}>
-                                                        <img className='thum' src={image} alt={`Thumbnail ${index}`} />
+                                                {(product.images || []).map((image, index) => (
+                                                    <div 
+                                                        className={`center max-w-120 max-h-120 h-100 flex-center border rounded-16 p-8 cursor-pointer transition-1 ${mainImage === image.url ? 'border-main-600 bg-main-50' : 'border-gray-100 bg-white'}`} 
+                                                        key={index} 
+                                                        onClick={() => setMainImage(image.url)}
+                                                    >
+                                                        <img 
+                                                            className='thum' 
+                                                            src={image.url} 
+                                                            alt={image.alt || `Thumbnail ${index}`} 
+                                                            style={{ height: '80px', width: '80px', objectFit: 'contain' }}
+                                                        />
                                                     </div>
                                                 ))}
                                             </Slider>
-
-
-
                                         </div>
                                     </div>
                                 </div>
                             </div>
                             <div className="col-xl-6">
                                 <div className="product-details__content">
-                                    <h5 className="mb-12">Lay's Potato Chips Onion Flavored</h5>
+                                    <h5 className="mb-12">{product.name}</h5>
                                     <div className="flex-align flex-wrap gap-12">
                                         <div className="flex-align gap-12 flex-wrap">
                                             <div className="flex-align gap-8">
-                                                <span className="text-15 fw-medium text-warning-600 d-flex">
-                                                    <i className="ph-fill ph-star" />
-                                                </span>
-                                                <span className="text-15 fw-medium text-warning-600 d-flex">
-                                                    <i className="ph-fill ph-star" />
-                                                </span>
-                                                <span className="text-15 fw-medium text-warning-600 d-flex">
-                                                    <i className="ph-fill ph-star" />
-                                                </span>
-                                                <span className="text-15 fw-medium text-warning-600 d-flex">
-                                                    <i className="ph-fill ph-star" />
-                                                </span>
-                                                <span className="text-15 fw-medium text-warning-600 d-flex">
-                                                    <i className="ph-fill ph-star" />
-                                                </span>
+                                                {[...Array(5)].map((_, i) => (
+                                                    <span key={i} className={`text-15 fw-medium d-flex ${i < Math.round(product.ratings?.average || 5) ? 'text-warning-600' : 'text-gray-300'}`}>
+                                                        <i className="ph-fill ph-star" />
+                                                    </span>
+                                                ))}
                                             </div>
                                             <span className="text-sm fw-medium text-neutral-600">
-                                                4.7 Star Rating
+                                                {product.ratings?.average || 0} Star Rating
                                             </span>
                                             <span className="text-sm fw-medium text-gray-500">
-                                                (21,671)
+                                                ({product.ratings?.count || 0} reviews)
                                             </span>
                                         </div>
                                         <span className="text-sm fw-medium text-gray-500">|</span>
                                         <span className="text-gray-900">
                                             {" "}
-                                            <span className="text-gray-400">SKU:</span>EB4DRP{" "}
+                                            <span className="text-gray-400">SKU:</span> {product.sku || "N/A"}{" "}
                                         </span>
                                     </div>
                                     <span className="mt-32 pt-32 text-gray-700 border-top border-gray-100 d-block" />
                                     <p className="text-gray-700">
-                                        Vivamus adipiscing nisl ut dolor dignissim semper. Nulla luctus
-                                        malesuada tincidunt. Class aptent taciti sociosqu ad litora
-                                        torquent
+                                        {product.shortDescription || product.description}
                                     </p>
                                     <div className="mt-32 flex-align flex-wrap gap-32">
                                         <div className="flex-align gap-8">
-                                            <h4 className="mb-0">$25.00</h4>
-                                            <span className="text-md text-gray-500">$38.00</span>
+                                            <h4 className="mb-0">{formatPrice(product.price.amount)}</h4>
+                                            {product.price.compareAt && (
+                                                <span className="text-md text-gray-500 text-decoration-line-through">{formatPrice(product.price.compareAt)}</span>
+                                            )}
                                         </div>
-                                        <Link to="#" className="btn btn-main rounded-pill">
-                                            Order on What'sApp
-                                        </Link>
+                                        <span className="badge bg-main-two-50 text-main-two-700 px-12 py-8 rounded-pill text-sm fw-semibold">
+                                            Brand: {product.brand}
+                                        </span>
                                     </div>
                                     <span className="mt-32 pt-32 text-gray-700 border-top border-gray-100 d-block" />
                                     <div className="flex-align flex-wrap gap-16 bg-color-one rounded-8 py-16 px-24">
@@ -148,24 +280,24 @@ const ProductDetailsOne = () => {
                                                 <i className="ph-fill ph-lightning" />
                                             </span>
                                             <h6 className="text-md mb-0 fw-bold text-gray-900">
-                                                Products are almost sold out
+                                                Valkey Live Inventory Levels
                                             </h6>
                                         </div>
                                         <div
                                             className="progress w-100 bg-gray-100 rounded-pill h-8"
                                             role="progressbar"
-                                            aria-label="Basic example"
-                                            aria-valuenow={32}
+                                            aria-label="Valkey Stock"
+                                            aria-valuenow={Math.min(100, ((product.inventory?.quantity - (product.inventory?.reserved || 0)) / (product.inventory?.quantity || 1)) * 100)}
                                             aria-valuemin={0}
                                             aria-valuemax={100}
                                         >
                                             <div
                                                 className="progress-bar bg-main-two-600 rounded-pill"
-                                                style={{ width: "32%" }}
+                                                style={{ width: `${Math.min(100, Math.max(10, ((product.inventory?.quantity - (product.inventory?.reserved || 0)) / (product.inventory?.quantity || 1)) * 100))}%` }}
                                             />
                                         </div>
-                                        <span className="text-sm text-gray-700 mt-8">
-                                            Available only:45
+                                        <span className="text-sm text-gray-700 mt-8 d-block">
+                                            Available Stock: {product.inventory?.quantity - (product.inventory?.reserved || 0)} units (Reserved: {product.inventory?.reserved || 0})
                                         </span>
                                     </div>
                                     <span className="text-gray-900 d-block mb-8">Quantity:</span>
@@ -190,27 +322,47 @@ const ProductDetailsOne = () => {
                                                     <i className="ph ph-plus" />
                                                 </button>
                                             </div>
-                                            <Link
-                                                to="#"
-                                                className="btn btn-main rounded-pill flex-align d-inline-flex gap-8 px-48"
+                                            <button
+                                                onClick={handleAddToCart}
+                                                disabled={addedToCart || (product.inventory?.quantity - (product.inventory?.reserved || 0) <= 0)}
+                                                type="button"
+                                                className={`btn rounded-pill flex-align d-inline-flex gap-8 px-48 fw-semibold ${
+                                                    addedToCart 
+                                                        ? 'bg-success-600 text-white border-success-600' 
+                                                        : (product.inventory?.quantity - (product.inventory?.reserved || 0) <= 0)
+                                                            ? 'bg-gray-200 text-gray-400 border-gray-200 cursor-not-allowed'
+                                                            : 'btn-main hover-bg-main-700'
+                                                }`}
                                             >
-                                                {" "}
-                                                <i className="ph ph-shopping-cart" /> Add To Cart
-                                            </Link>
+                                                <i className={addedToCart ? "ph ph-check text-xl d-flex" : "ph ph-shopping-cart text-xl d-flex"} />
+                                                {addedToCart ? 'Added!' : (product.inventory?.quantity - (product.inventory?.reserved || 0) <= 0) ? 'Out of Stock' : 'Add To Cart'}
+                                            </button>
                                         </div>
                                         <div className="flex-align gap-12">
-                                            <Link
-                                                to="#"
-                                                className="w-52 h-52 bg-main-50 text-main-600 text-xl hover-bg-main-600 hover-text-white flex-center rounded-circle"
+                                            <button
+                                                onClick={handleWishlistToggle}
+                                                type="button"
+                                                className={`w-52 h-52 text-xl flex-center rounded-circle border-0 ${
+                                                    inWishlist 
+                                                        ? 'bg-danger-600 text-white hover-bg-danger-700' 
+                                                        : 'bg-main-50 text-main-600 hover-bg-main-600 hover-text-white'
+                                                }`}
+                                                title={inWishlist ? "Remove from Wishlist" : "Add to Wishlist"}
                                             >
-                                                <i className="ph ph-heart" />
-                                            </Link>
-                                            <Link
-                                                to="#"
-                                                className="w-52 h-52 bg-main-50 text-main-600 text-xl hover-bg-main-600 hover-text-white flex-center rounded-circle"
+                                                <i className={inWishlist ? "ph-fill ph-heart" : "ph ph-heart"} />
+                                            </button>
+                                            <button
+                                                onClick={handleCompareToggle}
+                                                type="button"
+                                                className={`w-52 h-52 text-xl flex-center rounded-circle border-0 ${
+                                                    inCompare 
+                                                        ? 'bg-main-two-600 text-white hover-bg-main-two-700' 
+                                                        : 'bg-main-50 text-main-600 hover-bg-main-600 hover-text-white'
+                                                }`}
+                                                title={inCompare ? "Remove from Comparison" : "Add to Comparison"}
                                             >
-                                                <i className="ph ph-shuffle" />
-                                            </Link>
+                                                <i className={inCompare ? "ph-fill ph-shuffle" : "ph ph-shuffle"} />
+                                            </button>
                                             <Link
                                                 to="#"
                                                 className="w-52 h-52 bg-main-50 text-main-600 text-xl hover-bg-main-600 hover-text-white flex-center rounded-circle"
@@ -229,7 +381,7 @@ const ProductDetailsOne = () => {
                                                 <i className="ph ph-plus" />
                                             </button>
                                             <span className="text-gray-900 fw-medium text-xs">
-                                                Mfr. coupon. $3.00 off 5
+                                                Special Valkey Coupon: Use **VALKEY10** for 10% off!
                                             </span>
                                         </div>
                                         <Link
@@ -239,14 +391,6 @@ const ProductDetailsOne = () => {
                                             View Details
                                         </Link>
                                     </div>
-                                    <ul className="list-inside ms-12">
-                                        <li className="text-gray-900 text-sm mb-8">
-                                            Buy 1, Get 1 FREE
-                                        </li>
-                                        <li className="text-gray-900 text-sm mb-0">
-                                            Buy 1, Get 1 FREE
-                                        </li>
-                                    </ul>
                                 </div>
                             </div>
                         </div>
@@ -259,11 +403,11 @@ const ProductDetailsOne = () => {
                                         <span className="w-44 h-44 bg-white rounded-circle flex-center text-2xl">
                                             <i className="ph ph-storefront" />
                                         </span>
-                                        <span className="text-white">by Valkey</span>
+                                        <span className="text-white text-xs">by {product.brand || "Valkey"}</span>
                                     </div>
                                     <Link
                                         to="/shop"
-                                        className="btn btn-white rounded-pill text-uppercase"
+                                        className="btn btn-white rounded-pill text-uppercase text-xs"
                                     >
                                         View Store
                                     </Link>
@@ -395,40 +539,9 @@ const ProductDetailsOne = () => {
                                 >
                                     <div className="mb-40">
                                         <h6 className="mb-24">Product Description</h6>
-                                        <p>
-                                            Wherever celebrations and good times happen, the LAY'S brand
-                                            will be there just as it has been for more than 75 years. With
-                                            flavors almost as rich as our history, we have a chip or crisp
-                                            flavor guaranteed to bring a smile on your face.{" "}
+                                        <p style={{ whiteSpace: 'pre-line' }}>
+                                            {product.description}
                                         </p>
-                                        <p>
-                                            Morbi ut sapien vitae odio accumsan gravida. Morbi vitae erat
-                                            auctor, eleifend nunc a, lobortis neque. Praesent aliquam
-                                            dignissim viverra. Maecenas lacus odio, feugiat eu nunc sit
-                                            amet, maximus sagittis dolor. Vivamus nisi sapien, elementum
-                                            sit amet eros sit amet, ultricies cursus ipsum. Sed consequat
-                                            luctus ligula. Curabitur laoreet rhoncus blandit. Aenean vel
-                                            diam ut arcu pharetra dignissim ut sed leo. Vivamus faucibus,
-                                            ipsum in vestibulum vulputate, lorem orci convallis quam, sit
-                                            amet consequat nulla felis pharetra lacus. Duis semper erat
-                                            mauris, sed egestas purus commodo vel.
-                                        </p>
-                                        <ul className="list-inside mt-32 ms-16">
-                                            <li className="text-gray-400 mb-4">
-                                                8.0 oz. bag of LAY'S Classic Potato Chips
-                                            </li>
-                                            <li className="text-gray-400 mb-4">
-                                                Tasty LAY's potato chips are a great snack
-                                            </li>
-                                            <li className="text-gray-400 mb-4">
-                                                Includes three ingredients: potatoes, oil, and salt
-                                            </li>
-                                            <li className="text-gray-400 mb-4">Gluten free product</li>
-                                        </ul>
-                                        <ul className="mt-32">
-                                            <li className="text-gray-400 mb-4">Made in USA</li>
-                                            <li className="text-gray-400 mb-4">Ready To Eat.</li>
-                                        </ul>
                                     </div>
                                     <div className="mb-40">
                                         <h6 className="mb-24">Product Specifications</h6>
@@ -438,20 +551,8 @@ const ProductDetailsOne = () => {
                                                     <i className="ph ph-check" />
                                                 </span>
                                                 <span className="text-heading fw-medium">
-                                                    Product Type:
-                                                    <span className="text-gray-500"> Chips &amp; Dips</span>
-                                                </span>
-                                            </li>
-                                            <li className="text-gray-400 mb-14 flex-align gap-14">
-                                                <span className="w-20 h-20 bg-main-50 text-main-600 text-xs flex-center rounded-circle">
-                                                    <i className="ph ph-check" />
-                                                </span>
-                                                <span className="text-heading fw-medium">
-                                                    Product Name:
-                                                    <span className="text-gray-500">
-                                                        {" "}
-                                                        Potato Chips Classic{" "}
-                                                    </span>
+                                                    SKU:
+                                                    <span className="text-gray-500"> {product.sku || "N/A"}</span>
                                                 </span>
                                             </li>
                                             <li className="text-gray-400 mb-14 flex-align gap-14">
@@ -460,48 +561,20 @@ const ProductDetailsOne = () => {
                                                 </span>
                                                 <span className="text-heading fw-medium">
                                                     Brand:
-                                                    <span className="text-gray-500"> Lay's</span>
+                                                    <span className="text-gray-500"> {product.brand || "Valkey"}</span>
                                                 </span>
                                             </li>
-                                            <li className="text-gray-400 mb-14 flex-align gap-14">
-                                                <span className="w-20 h-20 bg-main-50 text-main-600 text-xs flex-center rounded-circle">
-                                                    <i className="ph ph-check" />
-                                                </span>
-                                                <span className="text-heading fw-medium">
-                                                    FSA Eligible:
-                                                    <span className="text-gray-500"> No</span>
-                                                </span>
-                                            </li>
-                                            <li className="text-gray-400 mb-14 flex-align gap-14">
-                                                <span className="w-20 h-20 bg-main-50 text-main-600 text-xs flex-center rounded-circle">
-                                                    <i className="ph ph-check" />
-                                                </span>
-                                                <span className="text-heading fw-medium">
-                                                    Size/Count:
-                                                    <span className="text-gray-500"> 8.0oz</span>
-                                                </span>
-                                            </li>
-                                            <li className="text-gray-400 mb-14 flex-align gap-14">
-                                                <span className="w-20 h-20 bg-main-50 text-main-600 text-xs flex-center rounded-circle">
-                                                    <i className="ph ph-check" />
-                                                </span>
-                                                <span className="text-heading fw-medium">
-                                                    Item Code:
-                                                    <span className="text-gray-500"> 331539</span>
-                                                </span>
-                                            </li>
-                                            <li className="text-gray-400 mb-14 flex-align gap-14">
-                                                <span className="w-20 h-20 bg-main-50 text-main-600 text-xs flex-center rounded-circle">
-                                                    <i className="ph ph-check" />
-                                                </span>
-                                                <span className="text-heading fw-medium">
-                                                    Ingredients:
-                                                    <span className="text-gray-500">
-                                                        {" "}
-                                                        Potatoes, Vegetable Oil, and Salt.
+                                            {product.attributes && Object.entries(product.attributes).map(([key, val]) => (
+                                                <li key={key} className="text-gray-400 mb-14 flex-align gap-14">
+                                                    <span className="w-20 h-20 bg-main-50 text-main-600 text-xs flex-center rounded-circle">
+                                                        <i className="ph ph-check" />
                                                     </span>
-                                                </span>
-                                            </li>
+                                                    <span className="text-heading fw-medium text-capitalize">
+                                                        {key}:
+                                                        <span className="text-gray-500"> {String(val)}</span>
+                                                    </span>
+                                                </li>
+                                            ))}
                                         </ul>
                                     </div>
                                     <div className="mb-40">

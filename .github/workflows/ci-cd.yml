@@ -1,0 +1,78 @@
+name: Valkey E-commerce CI/CD Pipeline
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  # 1. Continuous Integration (Linting & Testing)
+  test-and-lint:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-size: 20
+          cache: 'npm'
+          cache-dependency-path: './backend/package-lock.json'
+
+      - name: Install Backend Dependencies
+        run: |
+          cd backend
+          npm ci
+
+      - name: Run Backend Tests (Jest)
+        run: |
+          cd backend
+          npm test
+
+  # 2. Build Docker Images
+  build-docker-images:
+    needs: test-and-lint
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: actions/setup-buildx-action@v3
+
+      - name: Build Backend Image (Dry Run)
+        uses: docker/build-push-action@v5
+        with:
+          context: ./backend
+          file: ./backend/Dockerfile
+          push: false
+          tags: valkey-backend:latest
+
+      - name: Build Frontend Image (Dry Run)
+        uses: docker/build-push-action@v5
+        with:
+          context: ./frontend
+          file: ./frontend/Dockerfile
+          push: false
+          tags: valkey-frontend:latest
+
+  # 3. Continuous Deployment (AWS EC2 / SSH Deployment Placeholder)
+  deploy-to-aws:
+    needs: build-docker-images
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main'
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Simulate EC2 Server Deployment
+        run: |
+          echo "Simulating production deployment to AWS EC2 Instance via SSH..."
+          echo "1. Authenticate with AWS CLI"
+          echo "2. Log into Amazon ECR"
+          echo "3. Push latest images to Amazon ECR"
+          echo "4. SSH into EC2 server and pull images"
+          echo "5. Run docker-compose up -d --build"
+          echo "AWS Production Deployment Simulation Completed successfully!"

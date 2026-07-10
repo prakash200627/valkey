@@ -1,0 +1,77 @@
+services:
+  valkey:
+    image: redis/redis-stack:latest
+    container_name: valkey-db
+    restart: unless-stopped
+
+    ports:
+      - "6379:6379"
+
+    volumes:
+      - valkey_data:/data
+
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+    networks:
+      - valkey-network
+
+  backend:
+    build:
+      context: ./backend
+
+    container_name: valkey-backend
+    restart: unless-stopped
+
+    env_file:
+      - ./backend/.env
+
+    environment:
+      VALKEY_URL: redis://valkey:6379
+
+    ports:
+      - "5000:5000"
+
+    depends_on:
+      valkey:
+        condition: service_healthy
+
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "wget --no-verbose --tries=1 --spider http://localhost:5000/health || exit 1",
+        ]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+    networks:
+      - valkey-network
+
+  frontend:
+    build:
+      context: ./frontend
+
+    container_name: valkey-frontend
+    restart: unless-stopped
+
+    ports:
+      - "3000:80"
+
+    depends_on:
+      backend:
+        condition: service_healthy
+
+    networks:
+      - valkey-network
+
+volumes:
+  valkey_data:
+
+networks:
+  valkey-network:
+    driver: bridge

@@ -1,5 +1,5 @@
 // frontend/src/components/ShopSection.jsx
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { Link } from 'react-router-dom';
 import { api } from '../services/api';
 
@@ -18,7 +18,15 @@ const ShopSection = () => {
     const [categories, setCategories] = useState([{ id: '', name: 'All Categories' }]);
     const [breadcrumbs, setBreadcrumbs] = useState([]);
 
-    const loadCategories = async () => {
+    const searchQueryRef = useRef(searchQuery);
+    const minPriceRef = useRef(minPrice);
+    const maxPriceRef = useRef(maxPrice);
+
+    searchQueryRef.current = searchQuery;
+    minPriceRef.current = minPrice;
+    maxPriceRef.current = maxPrice;
+
+    const loadCategories = useCallback(async () => {
         try {
             const tree = await api.products.getCategories();
             const list = [{ id: '', name: 'All Categories' }];
@@ -37,9 +45,9 @@ const ShopSection = () => {
         } catch (err) {
             console.error('Failed to load categories tree:', err);
         }
-    };
+    }, []);
 
-    const loadBreadcrumbs = async () => {
+    const loadBreadcrumbs = useCallback(async () => {
         if (!selectedCategory) {
             setBreadcrumbs([]);
             return;
@@ -50,19 +58,23 @@ const ShopSection = () => {
         } catch (err) {
             console.error('Failed to load breadcrumbs:', err);
         }
-    };
+    }, [selectedCategory]);
 
-    const loadProducts = async () => {
+    const loadProducts = useCallback(async () => {
         try {
             setLoading(true);
             const params = {
                 page,
                 limit: 8
             };
-            if (searchQuery.trim()) params.q = searchQuery;
+            const currentSearchQuery = searchQueryRef.current;
+            const currentMinPrice = minPriceRef.current;
+            const currentMaxPrice = maxPriceRef.current;
+
+            if (currentSearchQuery.trim()) params.q = currentSearchQuery;
             if (selectedCategory) params.categoryId = selectedCategory;
-            if (minPrice) params.minPrice = parseInt(minPrice) * 100; // to paise
-            if (maxPrice) params.maxPrice = parseInt(maxPrice) * 100;
+            if (currentMinPrice) params.minPrice = parseInt(currentMinPrice) * 100; // to paise
+            if (currentMaxPrice) params.maxPrice = parseInt(currentMaxPrice) * 100;
 
             // Sort map
             if (sortBy === 'price_asc') params.sort = 'price_asc';
@@ -77,16 +89,16 @@ const ShopSection = () => {
         } finally {
             setLoading(false);
         }
-    };
+    }, [page, selectedCategory, sortBy]);
 
     useEffect(() => {
         loadCategories();
-    }, []);
+    }, [loadCategories]);
 
     useEffect(() => {
         loadProducts();
         loadBreadcrumbs();
-    }, [selectedCategory, sortBy, page]);
+    }, [loadProducts, loadBreadcrumbs]);
 
     useEffect(() => {
         setPage(1);

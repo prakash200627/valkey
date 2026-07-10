@@ -1,5 +1,5 @@
 // frontend/src/components/Account.jsx
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { api } from '../services/api';
 import { Link } from 'react-router-dom';
 
@@ -53,6 +53,19 @@ const Account = () => {
     const [orders, setOrders] = useState([]);
     const [loadingOrders, setLoadingOrders] = useState(false);
 
+    // Handle Load Orders
+    const handleLoadOrders = useCallback(async () => {
+        try {
+            setLoadingOrders(true);
+            const data = await api.checkout.history();
+            setOrders(data || []);
+        } catch (err) {
+            console.error('Failed to load orders:', err);
+        } finally {
+            setLoadingOrders(false);
+        }
+    }, []);
+
     useEffect(() => {
         const fetchProfile = async () => {
             const token = localStorage.getItem('valkey_session_token');
@@ -85,7 +98,7 @@ const Account = () => {
         if (activeTab === 'orders' && user) {
             handleLoadOrders();
         }
-    }, [activeTab]);
+    }, [activeTab, user, handleLoadOrders]);
 
     const validateEmail = (email) => {
         return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
@@ -329,19 +342,6 @@ const Account = () => {
             setUser(prev => ({ ...prev, addresses: res.addresses }));
         } catch (err) {
             alert(err.message || 'Failed to delete address.');
-        }
-    };
-
-    // Handle Load Orders
-    const handleLoadOrders = async () => {
-        try {
-            setLoadingOrders(true);
-            const data = await api.checkout.history();
-            setOrders(data || []);
-        } catch (err) {
-            console.error('Failed to load orders:', err);
-        } finally {
-            setLoadingOrders(false);
         }
     };
 
